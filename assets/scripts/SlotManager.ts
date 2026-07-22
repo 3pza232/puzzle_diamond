@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Prefab, UITransform, Vec3, v3, instantiate } from 'cc';
 import { GRID_COLS, GRID_ROWS, SLOT_DATA } from './Config';
+import { difficulty as gDifficulty } from './GameData';
 import { Gem } from './Gem';
 const { ccclass, property } = _decorator;
 
@@ -27,18 +28,33 @@ export class SlotManager extends Component {
     @property({ displayName: '打乱程度', range: [0, 1, 0.05], slide: true })
     intensity: number = 0.6;
 
+    @property({ displayName: '难度（0全对→1全乱）', range: [0, 1, 0.05], slide: true })
+    difficulty: number = 1.0;
+
     readonly slots: SlotEntry[] = [];
     private _spriteUI: UITransform = null;
 
     onLoad() {
+        if (gDifficulty !== undefined) this.difficulty = gDifficulty;
+
         if (SLOT_DATA.length === 0) {
             console.log('[SlotManager] SLOT_DATA 为空，跳过');
             return;
         }
         this._spriteUI = this.pineappleSprite.getComponent(UITransform);
         this.buildSlots();
+        this.expandSlotsTouchArea();
         console.log('[SlotManager] 已创建 ' + this.slots.length + ' 个坑位');
         this.instantiateGems();
+    }
+
+    private expandSlotsTouchArea() {
+        const spriteW = this._spriteUI.contentSize.width * this.pineappleSprite.scale.x;
+        const spriteH = this._spriteUI.contentSize.height * this.pineappleSprite.scale.y;
+        const ui = this.slotsNode.getComponent(UITransform);
+        if (ui) {
+            Object.assign(ui.contentSize, { width: spriteW, height: spriteH });
+        }
     }
 
     private instantiateGems() {
@@ -67,7 +83,7 @@ export class SlotManager extends Component {
 
             const gemUI = gemNode.getComponent(UITransform);
             if (gemUI) {
-                gemUI.contentSize = { width: 24, height: 24 };
+                Object.assign(gemUI.contentSize, { width: 24, height: 24 });
             }
 
             const gem = gemNode.getComponent(Gem);
@@ -80,142 +96,89 @@ export class SlotManager extends Component {
         console.log('[SlotManager] 已实例化 ' + this.slots.length + ' 颗宝石');
     }
 
-    // ── 三层打乱算法 ──
+    // ── FY 洗牌 + 美化（保证各色总数不变、自然成块）──
 
     private shuffleGems(colors: number[]) {
-        const I = this.intensity;
-        if (I <= 0) return;
+        const D = this.difficulty;
+        if (D <= 0) return;
 
-        // 第1层：区域颜色交换（产生大块同色迁移）
-        this.shuffleByRegion(colors, I);
+        this.partialShuffle(colors, D);
 
-        // 第2层：相邻水平带交换（产生跨区迁移）
-        this.shuffleByBand(colors, I);
-
-        // 第3层：带内局部交换（产生少量散落）
-        this.shuffleLocal(colors, I);
-    }
-
-    // 区域颜色交换
-    private shuffleByRegion(colors: number[], I: number) {
-        const REGION_COLS = 3;
-        const REGION_ROWS = 3;
-        const regionW = Math.ceil(GRID_COLS / REGION_COLS);
-        const regionH = Math.ceil(GRID_ROWS / REGION_ROWS);
-
-        for (let r = 0; r < REGION_ROWS; r++) {
-            for (let c = 0; c < REGION_COLS; c++) {
-                if (Math.random() >= I * 0.6) continue;
-
-                const minCol = c * regionW;
-                const maxCol = Math.min((c + 1) * regionW, GRID_COLS);
-                const minRow = r * regionH;
-                const maxRow = Math.min((r + 1) * regionH, GRID_ROWS);
-
-                const indices = this.slots
-                    .map((s, i) => ({ s, i }))
-                    .filter(x => x.s.col >= minCol && x.s.col < maxCol && x.s.row >= minRow && x.s.row < maxRow)
-                    .map(x => x.i);
-
-                if (indices.length < 4) continue;
-
-                const colorSet = new Set(indices.map(i => this.slots[i].targetColor));
-                const colorsInRegion = [...colorSet];
-
-                if (colorsInRegion.length < 2) continue;
-
-                const shuffledColors = [...colorsInRegion];
-                this._shuffleArr(shuffledColors);
-
-                const map = new Map<number, number>();
-                for (let ci = 0; ci < colorsInRegion.length; ci++) {
-                    const from = colorsInRegion[ci];
-                    const to = shuffledColors[ci];
-                    if (from !== to) {
-                        map.set(from, to);
-                    } else if (colorsInRegion.length > 1) {
-                        const next = shuffledColors[(ci + 1) % shuffledColors.length];
-                        map.set(from, next);
-                    }
-                }
-
-                for (const idx of indices) {
-                    const orig = this.slots[idx].targetColor;
-                    if (map.has(orig)) {
-                        colors[idx] = map.get(orig);
-                    }
-                }
-            }
+        if (this.intensity < 1) {
+            this.beautify(colors, this.intensity);
         }
     }
 
-    // 相邻水平带交换
-    private shuffleByBand(colors: number[], I: number) {
-        const BAND_COUNT = 5;
-        const rowsPerBand = Math.ceil(GRID_ROWS / BAND_COUNT);
-
-        const bands: number[][] = [];
-        for (let b = 0; b < BAND_COUNT; b++) {
-            const minRow = b * rowsPerBand;
-            const maxRow = Math.min((b + 1) * rowsPerBand, GRID_ROWS);
-            bands[b] = [];
-            for (let i = 0; i < this.slots.length; i++) {
-                if (this.slots[i].row >= minRow && this.slots[i].row < maxRow) {
-                    bands[b].push(i);
-                }
-            }
-        }
-
-        for (let b = 0; b < BAND_COUNT - 1; b++) {
-            const poolA = [...bands[b]];
-            const poolB = [...bands[b + 1]];
-            this._shuffleArr(poolA);
-            this._shuffleArr(poolB);
-
-            const swapN = Math.floor(Math.min(poolA.length, poolB.length) * I * 0.35);
-            for (let s = 0; s < swapN; s++) {
-                const tmp = colors[poolA[s]];
-                colors[poolA[s]] = colors[poolB[s]];
-                colors[poolB[s]] = tmp;
-            }
-        }
+    private partialShuffle(colors: number[], D: number) {
+        const n = colors.length;
+        const count = Math.floor(n * D);
+        const indices = [...Array(n).keys()];
+        this.fyShuffle(indices);
+        const pick = indices.slice(0, count);
+        const vals = pick.map(i => colors[i]);
+        this.fyShuffle(vals);
+        for (let i = 0; i < count; i++) colors[pick[i]] = vals[i];
     }
 
-    // 带内局部交换
-    private shuffleLocal(colors: number[], I: number) {
-        const BAND_COUNT = 5;
-        const rowsPerBand = Math.ceil(GRID_ROWS / BAND_COUNT);
-
-        const bands: number[][] = [];
-        for (let b = 0; b < BAND_COUNT; b++) {
-            const minRow = b * rowsPerBand;
-            const maxRow = Math.min((b + 1) * rowsPerBand, GRID_ROWS);
-            bands[b] = [];
-            for (let i = 0; i < this.slots.length; i++) {
-                if (this.slots[i].row >= minRow && this.slots[i].row < maxRow) {
-                    bands[b].push(i);
-                }
-            }
-        }
-
-        for (let b = 0; b < BAND_COUNT; b++) {
-            const pool = [...bands[b]];
-            this._shuffleArr(pool);
-
-            const swapN = Math.floor(pool.length * I * 0.25);
-            for (let s = 0; s + 1 < swapN; s += 2) {
-                const tmp = colors[pool[s]];
-                colors[pool[s]] = colors[pool[s + 1]];
-                colors[pool[s + 1]] = tmp;
-            }
-        }
-    }
-
-    private _shuffleArr<T>(arr: T[]): void {
+    private fyShuffle(arr: number[]) {
         for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
+    }
+
+    private beautify(colors: number[], I: number) {
+        const neigh = this.buildNeighbors();
+        const passes = Math.floor(4 + (1 - I) * 16);
+
+        for (let p = 0; p < passes; p++) {
+            let anySwap = false;
+            for (let i = 0; i < colors.length; i++) {
+                const myC = colors[i];
+                let same = 0;
+                for (const k of neigh[i]) { if (colors[k] === myC) same++; }
+                if (same >= 2) continue;
+
+                for (const j of neigh[i]) {
+                    if (colors[j] === myC) continue;
+                    const jC = colors[j];
+
+                    let iGain = 0, jGain = 0;
+                    for (const k of neigh[i]) {
+                        const c = k === j ? myC : colors[k];
+                        if (c === jC) iGain++;
+                    }
+                    for (const k of neigh[j]) {
+                        const c = k === i ? jC : colors[k];
+                        if (c === myC) jGain++;
+                    }
+
+                    let jSame = 0;
+                    for (const k of neigh[j]) { if (colors[k] === jC) jSame++; }
+
+                    if (iGain + jGain > same + jSame) {
+                        [colors[i], colors[j]] = [colors[j], colors[i]];
+                        anySwap = true;
+                        break;
+                    }
+                }
+            }
+            if (!anySwap) break;
+        }
+    }
+
+    private buildNeighbors(): number[][] {
+        return this.slots.map((s, i) => {
+            const ns: number[] = [];
+            for (let j = 0; j < this.slots.length; j++) {
+                if (i === j) continue;
+                if (Math.abs(this.slots[j].col - s.col) <= 1 &&
+                    Math.abs(this.slots[j].row - s.row) <= 1) {
+                    ns.push(j);
+                }
+            }
+            return ns;
+        });
     }
 
     // ── 查询接口 ──
@@ -235,6 +198,77 @@ export class SlotManager extends Component {
 
     getSlotAt(col: number, row: number): SlotEntry {
         return this.slots.find(s => s.col === col && s.row === row);
+    }
+
+    // 将世界坐标转换为格子行列
+    worldToGrid(worldPos: Vec3): { col: number; row: number } | null {
+        const localPos = this._spriteUI.convertToNodeSpaceAR(worldPos);
+        const w = this._spriteUI.contentSize.width;
+        const h = this._spriteUI.contentSize.height;
+        const halfW = w / 2;
+        const halfH = h / 2;
+
+        if (Math.abs(localPos.x) > halfW || Math.abs(localPos.y) > halfH) return null;
+
+        const col = Math.floor((localPos.x + halfW) / (w / GRID_COLS));
+        const row = Math.floor((halfH - localPos.y) / (h / GRID_ROWS));
+        if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return null;
+        return { col, row };
+    }
+
+    // 按颜色统计坑位数
+    getColorCount(colorId: number): number {
+        return this.slots.filter(s => s.targetColor === colorId).length;
+    }
+
+    // 查找相连的空坑位（同目标色的空位 floodFill）
+    findEmptySlots(col: number, row: number, colorId: number): SlotEntry[] {
+        const result: SlotEntry[] = [];
+        const visited = new Set<string>();
+        const queue: { col: number; row: number }[] = [{ col, row }];
+
+        while (queue.length > 0) {
+            const { col: c, row: r } = queue.shift()!;
+            const key = `${c},${r}`;
+            if (visited.has(key)) continue;
+            visited.add(key);
+
+            const entry = this.getSlotAt(c, r);
+            if (!entry) continue;
+            if (entry.targetColor !== colorId) continue;
+            if (entry.gem !== null) continue;
+
+            result.push(entry);
+
+            for (const [dc, dr] of [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]) {
+                const nc = c + dc;
+                const nr = r + dr;
+                if (nc >= 0 && nc < GRID_COLS && nr >= 0 && nr < GRID_ROWS) {
+                    if (!visited.has(`${nc},${nr}`)) {
+                        queue.push({ col: nc, row: nr });
+                    }
+                }
+            }
+        }
+
+        result.sort((a, b) => a.row - b.row || a.col - b.col);
+        return result;
+    }
+
+    // 将宝石放入坑位
+    placeGem(entry: SlotEntry, gemNode: Node, gemColor: number): void {
+        entry.gem = gemNode;
+        entry.gemColor = gemColor;
+        entry.node = gemNode;
+        gemNode.position = this.calcSlotLocalPos(entry.col, entry.row);
+        gemNode.setParent(this.slotsNode);
+    }
+
+    // 从坑位移除宝石
+    clearSlot(entry: SlotEntry): void {
+        entry.gem = null;
+        entry.gemColor = 0;
+        entry.node = null;
     }
 
     private calcSlotLocalPos(col: number, row: number): Vec3 {

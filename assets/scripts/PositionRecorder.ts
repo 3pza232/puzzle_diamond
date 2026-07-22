@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, input, Input, EventTouch,
-    UITransform, Graphics, Color, Vec3, v3,
-    EventKeyboard, KeyCode, Size } from 'cc';
+    UITransform, Graphics, Color, v3,
+    EventKeyboard, KeyCode } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('PositionRecorder')

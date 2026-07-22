@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, tween, v3, EventTouch } from 'cc';
 import { eventBus, GEM_TAP } from './events/GameEventBus';
-const { ccclass, property } = _decorator;
+const { ccclass } = _decorator;
 
 @ccclass('Gem')
 export class Gem extends Component {
