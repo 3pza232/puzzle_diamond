@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, Button, UITransform, EventTouch, v3, instantiate, director } from 'cc';
+import { _decorator, Component, Node, Sprite, Button, UITransform, EventTouch, Vec3, v3, tween, instantiate, director } from 'cc';
 import { SlotManager } from './SlotManager';
 import { Selector } from './Selector';
 import { Gem } from './Gem';
@@ -15,7 +15,10 @@ export class MoveHandler extends Component {
     trayNode: Node = null;
 
     @property({ type: Node })
-    winPanel: Node = null;
+    winCanvas: Node = null;
+
+    @property({ displayName: '移动动画时长(秒)', range: [0.05, 0.5, 0.05], slide: true })
+    animDuration: number = 0.1;
 
     private _selector: Selector = null;
     private _slotManager: SlotManager = null;
@@ -157,6 +160,7 @@ export class MoveHandler extends Component {
                     const g = node.getComponent(Gem);
                     if (g) g.colorId = colorId;
                     this._slotManager.placeGem(emptySlots[i], node, colorId);
+                    this.popGem(node);
                 }
             } else {
                 const old = this._slotManager.getSlotByGem(gc.node);
@@ -210,6 +214,7 @@ export class MoveHandler extends Component {
                 this._traySlots[idx].addChild(node);
                 const g = node.getComponent(Gem);
                 if (g) g.colorId = colorId;
+                this.popGem(node);
             }
 
             this._trayOccupied.add(idx);
@@ -218,6 +223,13 @@ export class MoveHandler extends Component {
 
         this._selector.deselectFirst(toMove);
         this.tryWin();
+    }
+
+    private popGem(node: Node) {
+        node.setScale(v3(0.01, 0.01, 1));
+        tween(node)
+            .to(this.animDuration, { scale: v3(1, 1, 1) }, { easing: 'backOut' })
+            .start();
     }
 
     private tryWin() {

@@ -287,6 +287,11 @@ export class SlotManager extends Component {
         );
     }
 
+    getSlotWorldPos(col: number, row: number): Vec3 {
+        const localPos = this.calcSlotLocalPos(col, row);
+        return this.slotsNode.getComponent(UITransform).convertToWorldSpaceAR(localPos);
+    }
+
     private buildSlots() {
         for (const data of SLOT_DATA) {
             this.slots.push({
