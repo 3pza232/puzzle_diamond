@@ -1,0 +1,18 @@
+{
+  "__version__": "1.3.9",
+  "splash-setting": {
+    "logo": {
+      "image": "project://settings/菠萝1.png",
+      "type": "custom"
+    },
+    "background": {
+      "color": {
+        "x": 0.1843137254901961,
+        "y": 0.14901960784313725,
+        "z": 0.2549019607843137,
+        "w": 0.7529411764705882
+      },
+      "type": "color"
+    }
+  }
+}
