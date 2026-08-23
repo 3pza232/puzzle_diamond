@@ -37,8 +37,6 @@ export class FloatingHand extends Component {
         input.on(Input.EventType.MOUSE_MOVE, this._onInput);
     }
 
-    private _onInput: (e: any) => void = null;
-
     onDestroy() {
         if (this._onInput) {
             input.off(Input.EventType.TOUCH_START, this._onInput);
